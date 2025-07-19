@@ -283,15 +283,171 @@ if st.session_state.load_data:
                                 else:
                                     signals.append('Bán')
                             
-                            # Hiển thị tín hiệu cuối cùng
+                            # Hiển thị tín hiệu cuối cùng và phân tích trading
                             latest_signal = signals[-1] if signals else "Không xác định"
                             signal_color = "green" if latest_signal == "Mua" else "red"
+                            
+                            # Phân tích xu hướng và dự đoán điểm mua/bán
+                            def analyze_trading_signals(predicted_prices, real_prices, dates):
+                                trading_analysis = {}
+                                
+                                # Tính toán độ biến động giá
+                                price_volatility = np.std(predicted_prices) / np.mean(predicted_prices) * 100
+                                
+                                # Tìm điểm thấp nhất và cao nhất trong dự đoán
+                                min_price_idx = np.argmin(predicted_prices)
+                                max_price_idx = np.argmax(predicted_prices)
+                                
+                                # Tính toán đà tăng/giảm
+                                recent_trend = predicted_prices[-5:] if len(predicted_prices) >= 5 else predicted_prices
+                                trend_direction = "Tăng" if recent_trend[-1] > recent_trend[0] else "Giảm"
+                                trend_strength = abs((recent_trend[-1] - recent_trend[0]) / recent_trend[0] * 100)
+                                
+                                # Dự đoán điểm mua tối ưu (giá thấp + xu hướng tăng)
+                                buy_opportunities = []
+                                for i in range(1, len(predicted_prices) - 1):
+                                    if (predicted_prices[i] < predicted_prices[i-1] and 
+                                        predicted_prices[i] < predicted_prices[i+1]):
+                                        profit_potential = (np.max(predicted_prices[i:]) - predicted_prices[i]) / predicted_prices[i] * 100
+                                        if profit_potential > 2:  # Chỉ consider nếu có tiềm năng lãi > 2%
+                                            # Xử lý an toàn cho date
+                                            date_value = None
+                                            if i < len(dates):
+                                                try:
+                                                    date_value = pd.to_datetime(dates[i])
+                                                except:
+                                                    date_value = None
+                                            
+                                            buy_opportunities.append({
+                                                'index': i,
+                                                'price': predicted_prices[i],
+                                                'date': date_value,
+                                                'profit_potential': profit_potential
+                                            })
+                                
+                                # Sắp xếp theo tiềm năng lãi
+                                buy_opportunities.sort(key=lambda x: x['profit_potential'], reverse=True)
+                                
+                                # Dự đoán điểm bán tối ưu (giá cao + xu hướng giảm)
+                                sell_opportunities = []
+                                for i in range(1, len(predicted_prices) - 1):
+                                    if (predicted_prices[i] > predicted_prices[i-1] and 
+                                        predicted_prices[i] > predicted_prices[i+1]):
+                                        price_drop = (predicted_prices[i] - np.min(predicted_prices[i:])) / predicted_prices[i] * 100
+                                        if price_drop > 2:  # Chỉ consider nếu có khả năng giảm > 2%
+                                            # Xử lý an toàn cho date
+                                            date_value = None
+                                            if i < len(dates):
+                                                try:
+                                                    date_value = pd.to_datetime(dates[i])
+                                                except:
+                                                    date_value = None
+                                            
+                                            sell_opportunities.append({
+                                                'index': i,
+                                                'price': predicted_prices[i],
+                                                'date': date_value,
+                                                'risk_level': price_drop
+                                            })
+                                
+                                sell_opportunities.sort(key=lambda x: x['risk_level'], reverse=True)
+                                
+                                trading_analysis = {
+                                    'volatility': price_volatility,
+                                    'trend_direction': trend_direction,
+                                    'trend_strength': trend_strength,
+                                    'best_buy': buy_opportunities[0] if buy_opportunities else None,
+                                    'best_sell': sell_opportunities[0] if sell_opportunities else None,
+                                    'min_price_date': pd.to_datetime(dates[min_price_idx]) if min_price_idx < len(dates) else None,
+                                    'max_price_date': pd.to_datetime(dates[max_price_idx]) if max_price_idx < len(dates) else None,
+                                    'min_price': predicted_prices[min_price_idx],
+                                    'max_price': predicted_prices[max_price_idx]
+                                }
+                                
+                                return trading_analysis
+                            
+                            # Thực hiện phân tích trading
+                            trading_info = analyze_trading_signals(
+                                predicted_prices.flatten(), 
+                                real_prices.flatten(), 
+                                prediction_dates
+                            )
                             
                             st.markdown(f"""
                             <div style="background-color: {signal_color}; color: white; padding: 20px; border-radius: 10px; text-align: center;">
                                 <h3>Tín hiệu mới nhất: {latest_signal}</h3>
+                                <p><strong>Xu hướng:</strong> {trading_info['trend_direction']} ({trading_info['trend_strength']:.1f}%)</p>
+                                <p><strong>Độ biến động:</strong> {trading_info['volatility']:.1f}%</p>
                             </div>
                             """, unsafe_allow_html=True)
+                            
+                            # Hiển thị khuyến nghị mua/bán cụ thể
+                            st.markdown("### 🎯 Khuyến nghị Trading")
+                            
+                            col_buy, col_sell = st.columns(2)
+                            
+                            with col_buy:
+                                st.markdown("#### 💰 Điểm mua tối ưu")
+                                if trading_info['best_buy']:
+                                    buy_info = trading_info['best_buy']
+                                    date_str = buy_info['date'].strftime('%d/%m/%Y') if buy_info['date'] and hasattr(buy_info['date'], 'strftime') else 'N/A'
+                                    st.success(f"""
+                                    **Giá mua đề xuất:** {buy_info['price']:,.0f} VND
+                                    **Tiềm năng lãi:** {buy_info['profit_potential']:.1f}%
+                                    **Ngày dự kiến:** {date_str}
+                                    """)
+                                else:
+                                    st.info("Không tìm thấy điểm mua tối ưu trong dự đoán")
+                                
+                                # Hiển thị giá thấp nhất dự đoán
+                                min_date_str = trading_info['min_price_date'].strftime('%d/%m/%Y') if trading_info['min_price_date'] and hasattr(trading_info['min_price_date'], 'strftime') else 'N/A'
+                                st.info(f"""
+                                **Giá thấp nhất dự đoán:** {trading_info['min_price']:,.0f} VND
+                                **Ngày:** {min_date_str}
+                                """)
+                            
+                            with col_sell:
+                                st.markdown("#### 🎯 Điểm chốt lời tối ưu")
+                                if trading_info['best_sell']:
+                                    sell_info = trading_info['best_sell']
+                                    date_str = sell_info['date'].strftime('%d/%m/%Y') if sell_info['date'] and hasattr(sell_info['date'], 'strftime') else 'N/A'
+                                    st.warning(f"""
+                                    **Giá bán đề xuất:** {sell_info['price']:,.0f} VND
+                                    **Mức rủi ro:** {sell_info['risk_level']:.1f}%
+                                    **Ngày dự kiến:** {date_str}
+                                    """)
+                                else:
+                                    st.info("Không tìm thấy điểm bán tối ưu trong dự đoán")
+                                
+                                # Hiển thị giá cao nhất dự đoán
+                                max_date_str = trading_info['max_price_date'].strftime('%d/%m/%Y') if trading_info['max_price_date'] and hasattr(trading_info['max_price_date'], 'strftime') else 'N/A'
+                                st.info(f"""
+                                **Giá cao nhất dự đoán:** {trading_info['max_price']:,.0f} VND
+                                **Ngày:** {max_date_str}
+                                """)
+                            
+                            # Tính toán và hiển thị lợi nhuận tiềm năng
+                            if trading_info['best_buy'] and trading_info['best_sell']:
+                                potential_profit = ((trading_info['best_sell']['price'] - trading_info['best_buy']['price']) / 
+                                                 trading_info['best_buy']['price'] * 100)
+                                
+                                if potential_profit > 0:
+                                    st.success(f"""
+                                    ### 📈 Tiềm năng lợi nhuận: {potential_profit:.1f}%
+                                    **Chiến lược:** Mua ở {trading_info['best_buy']['price']:,.0f} VND, bán ở {trading_info['best_sell']['price']:,.0f} VND
+                                    """)
+                                else:
+                                    st.warning("⚠️ Không có cơ hội lợi nhuận rõ ràng trong khoảng thời gian dự đoán")
+                            
+                            # Thêm cảnh báo rủi ro
+                            st.markdown("### ⚠️ Lưu ý quan trọng")
+                            st.warning(f"""
+                            - Độ biến động hiện tại: **{trading_info['volatility']:.1f}%** {'(Cao)' if trading_info['volatility'] > 5 else '(Thấp)'}
+                            - Xu hướng ngắn hạn: **{trading_info['trend_direction']}** với cường độ {trading_info['trend_strength']:.1f}%
+                            - Đây chỉ là dự đoán dựa trên AI, không phải lời khuyên đầu tư
+                            - Luôn đặt stop-loss và take-profit phù hợp
+                            - Không đầu tư quá 5-10% tổng tài sản vào một cổ phiếu
+                            """)
                             
                             # Hiển thị thống kê độ chính xác
                             # Đảm bảo dữ liệu có cùng shape và loại bỏ giá trị NaN
