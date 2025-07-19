@@ -96,8 +96,22 @@ def make_predictions(model, X, scaler):
     Returns:
         numpy.array: Predicted prices in original scale
     """
-    predicted = model.predict(X)
+    predicted = model.predict(X, verbose=0)
+    
+    # Ensure predicted has the right shape for inverse_transform
+    if predicted.ndim == 1:
+        predicted = predicted.reshape(-1, 1)
+    elif predicted.shape[1] != 1:
+        predicted = predicted.reshape(-1, 1)
+    
+    print(f"Predicted shape before inverse transform: {predicted.shape}")
+    print(f"Sample predicted values (scaled): {predicted[:5].flatten()}")
+    
     predicted_prices = scaler.inverse_transform(predicted)
+    
+    print(f"Predicted prices shape after inverse transform: {predicted_prices.shape}")
+    print(f"Sample predicted prices (unscaled): {predicted_prices[:5].flatten()}")
+    
     return predicted_prices
 
 
@@ -116,11 +130,19 @@ def calculate_model_accuracy(real_prices, predicted_prices):
     real_flat = real_prices.flatten()
     pred_flat = predicted_prices.flatten()
     
+    # Debug prints
+    print(f"Real prices shape: {real_flat.shape}, range: {real_flat.min():.2f} - {real_flat.max():.2f}")
+    print(f"Predicted prices shape: {pred_flat.shape}, range: {pred_flat.min():.2f} - {pred_flat.max():.2f}")
+    print(f"Sample real values: {real_flat[:5]}")
+    print(f"Sample predicted values: {pred_flat[:5]}")
+    
     # Remove NaN and inf values
     valid_indices = ~(np.isnan(real_flat) | np.isnan(pred_flat) | 
                      np.isinf(real_flat) | np.isinf(pred_flat))
     real_clean = real_flat[valid_indices]
     pred_clean = pred_flat[valid_indices]
+    
+    print(f"Valid data points: {len(real_clean)} out of {len(real_flat)}")
     
     if len(real_clean) == 0:
         return {
@@ -132,13 +154,31 @@ def calculate_model_accuracy(real_prices, predicted_prices):
         }
     
     # Calculate metrics
-    mse = np.mean((real_clean - pred_clean) ** 2)
-    rmse = np.sqrt(mse)
-    mae = np.mean(np.abs(real_clean - pred_clean))
+    differences = real_clean - pred_clean
+    squared_differences = differences ** 2
+    absolute_differences = np.abs(differences)
     
-    # Calculate MAPE (Mean Absolute Percentage Error)
-    mape = np.mean(np.abs((real_clean - pred_clean) / real_clean)) * 100
-    accuracy = max(0.0, 100.0 - float(mape))
+    mse = np.mean(squared_differences)
+    rmse = np.sqrt(mse)
+    mae = np.mean(absolute_differences)
+    
+    print(f"MSE calculation: {mse}")
+    print(f"RMSE calculation: {rmse}")
+    print(f"MAE calculation: {mae}")
+    print(f"Sample differences: {differences[:5]}")
+    
+    # Calculate MAPE (Mean Absolute Percentage Error) - avoid division by zero
+    percentage_errors = []
+    for i in range(len(real_clean)):
+        if real_clean[i] != 0:
+            percentage_errors.append(abs((real_clean[i] - pred_clean[i]) / real_clean[i]) * 100)
+    
+    if len(percentage_errors) > 0:
+        mape = np.mean(percentage_errors)
+        accuracy = max(0.0, 100.0 - float(mape))
+    else:
+        mape = float('inf')
+        accuracy = 0.0
     
     return {
         'mse': mse,

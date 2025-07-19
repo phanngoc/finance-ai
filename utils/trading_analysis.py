@@ -145,7 +145,7 @@ def calculate_price_volatility(predicted_prices):
     return np.std(pred_flat) / np.mean(pred_flat) * 100
 
 
-def analyze_trend(predicted_prices, window=5):
+def analyze_trend(predicted_prices, window=10):
     """
     Analyze price trend from predicted prices
     
