@@ -8,7 +8,7 @@ import numpy as np
 from utils.data_processing import load_stock_data, get_basic_stats, prepare_prediction_dataframe, format_prediction_table
 from utils.lstm_model import (
     prepare_lstm_data, create_lstm_model, train_lstm_model, 
-    make_predictions, calculate_model_accuracy, KERAS_AVAILABLE
+    make_predictions, calculate_model_accuracy, predict_future_prices, KERAS_AVAILABLE
 )
 from utils.trading_analysis import (
     analyze_trading_signals, generate_trading_signals, 
@@ -17,7 +17,8 @@ from utils.trading_analysis import (
 )
 from utils.plotting import (
     create_combined_chart, create_comparison_chart, create_trading_signals_chart,
-    create_signals_pie_chart, create_trend_strength_chart, create_accuracy_scatter_plot
+    create_signals_pie_chart, create_trend_strength_chart, create_accuracy_scatter_plot,
+    create_future_prediction_chart
 )
 
 # Check if Keras is available
@@ -399,6 +400,99 @@ if st.session_state.load_data:
                             st.plotly_chart(fig_accuracy, use_container_width=True)
                         else:
                             st.error("Không thể tính toán độ chính xác do dữ liệu không hợp lệ")
+                        
+                        # === SECTION: FUTURE PREDICTIONS ===
+                        st.markdown("---")
+                        st.subheader("🔮 Dự đoán Giá 10 Ngày Tới")
+                        
+                        # Add checkbox to enable future prediction
+                        if st.checkbox("Hiển thị dự đoán 10 ngày tới", value=True, help="Dự đoán giá cho 10 ngày kinh doanh tiếp theo"):
+                            with st.spinner("Đang dự đoán giá cho 10 ngày tới..."):
+                                try:
+                                    # Predict future prices
+                                    future_prices = predict_future_prices(model, df, scaler, lookback=lookback, days_ahead=10)
+                                    
+                                    # Generate future dates (business days only)
+                                    last_date = df.index[-1]
+                                    future_dates = pd.bdate_range(start=last_date + pd.Timedelta(days=1), periods=10, freq='B')
+                                    
+                                    # Create future prediction chart
+                                    # Show last 30 days of historical data for context
+                                    recent_data = df.tail(30)
+                                    fig_future = create_future_prediction_chart(recent_data, future_prices, future_dates, symbol)
+                                    st.plotly_chart(fig_future, use_container_width=True)
+                                    
+                                    # Display future predictions in a table
+                                    future_df = pd.DataFrame({
+                                        'Ngày': future_dates.strftime('%d/%m/%Y'),
+                                        'Dự đoán giá đóng cửa (VND)': [f"{price:,.0f}" for price in future_prices],
+                                        'Thay đổi từ hôm nay (%)': [f"{((price - df['close'].iloc[-1]) / df['close'].iloc[-1] * 100):+.2f}%" for price in future_prices]
+                                    })
+                                    
+                                    st.markdown("##### 📊 Bảng Dự đoán Chi tiết")
+                                    st.dataframe(future_df, use_container_width=True, hide_index=True)
+                                    
+                                    # Future prediction analysis
+                                    col_analysis1, col_analysis2 = st.columns(2)
+                                    
+                                    with col_analysis1:
+                                        current_price = df['close'].iloc[-1]
+                                        avg_future_price = np.mean(future_prices)
+                                        price_change_pct = ((avg_future_price - current_price) / current_price) * 100
+                                        
+                                        st.metric(
+                                            "Giá trung bình dự đoán (10 ngày)",
+                                            f"{avg_future_price:,.0f} VND",
+                                            f"{price_change_pct:+.2f}%"
+                                        )
+                                        
+                                        max_future_price = np.max(future_prices)
+                                        min_future_price = np.min(future_prices)
+                                        volatility_future = ((max_future_price - min_future_price) / min_future_price) * 100
+                                        
+                                        st.metric(
+                                            "Biên độ biến động dự đoán",
+                                            f"{volatility_future:.2f}%",
+                                            f"từ {min_future_price:,.0f} đến {max_future_price:,.0f} VND"
+                                        )
+                                    
+                                    with col_analysis2:
+                                        # Trend analysis for future predictions
+                                        if future_prices[-1] > future_prices[0]:
+                                            trend_direction = "📈 Tăng"
+                                            trend_color = "green"
+                                        else:
+                                            trend_direction = "📉 Giảm"
+                                            trend_color = "red"
+                                        
+                                        trend_strength = abs(((future_prices[-1] - future_prices[0]) / future_prices[0]) * 100)
+                                        
+                                        st.markdown(f"""
+                                        <div style="background-color: {trend_color}; color: white; padding: 15px; border-radius: 10px; text-align: center;">
+                                            <h4>Xu hướng 10 ngày: {trend_direction}</h4>
+                                            <p><strong>Cường độ:</strong> {trend_strength:.2f}%</p>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                        
+                                        # Investment recommendation based on future trend
+                                        if price_change_pct > 5:
+                                            st.success("💡 **Khuyến nghị:** Xu hướng tích cực, có thể cân nhắc mua")
+                                        elif price_change_pct < -5:
+                                            st.error("⚠️ **Khuyến nghị:** Xu hướng tiêu cực, nên thận trọng")
+                                        else:
+                                            st.info("📊 **Khuyến nghị:** Xu hướng ổn định, chờ tín hiệu rõ ràng hơn")
+                                    
+                                    st.warning("""
+                                    **⚠️ Lưu ý quan trọng về dự đoán tương lai:**
+                                    - Dự đoán càng xa thì độ tin cậy càng giảm
+                                    - Các sự kiện bất ngờ có thể thay đổi hoàn toàn xu hướng giá
+                                    - Luôn kết hợp với phân tích cơ bản và tin tức thị trường
+                                    - Không nên dựa hoàn toàn vào dự đoán AI để đầu tư
+                                    """)
+                                    
+                                except Exception as e:
+                                    st.error(f"Lỗi khi dự đoán giá tương lai: {str(e)}")
+                                    st.info("Hãy thử lại hoặc kiểm tra dữ liệu đầu vào.")
                         
                         # Hiển thị bảng dự đoán mới nhất
                         st.subheader("📋 Dự đoán 10 ngày gần nhất")

@@ -315,3 +315,73 @@ def create_accuracy_scatter_plot(real_prices, predicted_prices):
     ))
     
     return fig_accuracy
+
+
+def create_future_prediction_chart(historical_data, future_predictions, future_dates, symbol):
+    """
+    Create a chart showing historical prices and future predictions
+    
+    Args:
+        historical_data (DataFrame): Historical stock data
+        future_predictions (numpy.array): Predicted future prices
+        future_dates (list): Dates for future predictions
+        symbol (str): Stock symbol
+        
+    Returns:
+        plotly.Figure: Chart with historical and future prices
+    """
+    fig = go.Figure()
+    
+    # Add historical close prices
+    fig.add_trace(go.Scatter(
+        x=historical_data.index,
+        y=historical_data['close'],
+        mode='lines',
+        name='Giá thực tế',
+        line=dict(color='blue', width=2)
+    ))
+    
+    # Add future predictions
+    fig.add_trace(go.Scatter(
+        x=future_dates,
+        y=future_predictions,
+        mode='lines+markers',
+        name='Dự đoán 10 ngày tới',
+        line=dict(color='red', width=2, dash='dot'),
+        marker=dict(size=6, color='red')
+    ))
+    
+    # Add a vertical line to separate historical and predicted data
+    last_historical_date = historical_data.index[-1]
+    fig.add_vline(
+        x=last_historical_date, 
+        line_dash="dash", 
+        line_color="gray",
+        annotation_text="Ngày hiện tại"
+    )
+    
+    # Add connecting line between last historical point and first prediction
+    fig.add_trace(go.Scatter(
+        x=[last_historical_date, future_dates[0]],
+        y=[historical_data['close'].iloc[-1], future_predictions[0]],
+        mode='lines',
+        name='Kết nối',
+        line=dict(color='orange', width=1, dash='dash'),
+        showlegend=False
+    ))
+    
+    fig.update_layout(
+        title=f'📋 Dự đoán 10 ngày gần nhất cho {symbol}',
+        xaxis_title='Ngày',
+        yaxis_title='Giá đóng cửa (VND)',
+        height=600,
+        hovermode='x unified',
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="left",
+            x=0.01
+        )
+    )
+    
+    return fig

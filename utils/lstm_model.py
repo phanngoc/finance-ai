@@ -147,3 +147,44 @@ def calculate_model_accuracy(real_prices, predicted_prices):
         'mape': mape,
         'accuracy': accuracy
     }
+
+
+def predict_future_prices(model, data, scaler, lookback=60, days_ahead=10):
+    """
+    Predict future prices for the next n days
+    
+    Args:
+        model: Trained LSTM model
+        data (DataFrame): Historical stock data with 'close' column
+        scaler: Fitted MinMaxScaler used for training
+        lookback (int): Number of previous days to use for prediction
+        days_ahead (int): Number of days to predict into the future
+        
+    Returns:
+        numpy.array: Predicted future prices in original scale
+    """
+    if not KERAS_AVAILABLE:
+        raise ImportError("Keras/TensorFlow is required for LSTM model")
+    
+    # Get the last 'lookback' days of scaled data
+    scaled_data = scaler.transform(data[['close']].values)
+    last_sequence = scaled_data[-lookback:].reshape(1, lookback, 1)
+    
+    future_predictions = []
+    current_sequence = last_sequence.copy()
+    
+    # Predict day by day
+    for _ in range(days_ahead):
+        # Predict next day
+        next_pred = model.predict(current_sequence, verbose=0)
+        future_predictions.append(next_pred[0, 0])
+        
+        # Update sequence: remove first element, add prediction at the end
+        current_sequence = np.roll(current_sequence, -1, axis=1)
+        current_sequence[0, -1, 0] = next_pred[0, 0]
+    
+    # Convert predictions back to original scale
+    future_predictions = np.array(future_predictions).reshape(-1, 1)
+    future_prices = scaler.inverse_transform(future_predictions)
+    
+    return future_prices.flatten()
