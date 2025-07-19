@@ -1,17 +1,27 @@
 import streamlit as st
-from vnstock import Vnstock
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-try:
-    from keras.models import Sequential
-    from keras.layers import LSTM, Dense, Dropout
-    KERAS_AVAILABLE = True
-except ImportError:
-    KERAS_AVAILABLE = False
+
+# Import custom utilities
+from utils.data_processing import load_stock_data, get_basic_stats, prepare_prediction_dataframe, format_prediction_table
+from utils.lstm_model import (
+    prepare_lstm_data, create_lstm_model, train_lstm_model, 
+    make_predictions, calculate_model_accuracy, KERAS_AVAILABLE
+)
+from utils.trading_analysis import (
+    analyze_trading_signals, generate_trading_signals, 
+    calculate_trend_strength_over_time, calculate_signal_distribution,
+    calculate_potential_profit
+)
+from utils.plotting import (
+    create_combined_chart, create_comparison_chart, create_trading_signals_chart,
+    create_signals_pie_chart, create_trend_strength_chart, create_accuracy_scatter_plot
+)
+
+# Check if Keras is available
+if not KERAS_AVAILABLE:
     st.warning("Keras/TensorFlow chưa được cài đặt. Chức năng dự đoán LSTM sẽ không khả dụng.")
 
 # Cấu hình trang Streamlit
@@ -36,18 +46,6 @@ end_date = st.sidebar.date_input("Ngày kết thúc", value=pd.Timestamp.today()
 if st.sidebar.button("Tải dữ liệu", type="primary"):
     st.session_state.load_data = True
 
-# Hàm để tải và xử lý dữ liệu
-@st.cache_data
-def load_stock_data(symbol, start_date, end_date):
-    try:
-        stock = Vnstock().stock(symbol=symbol, source='VCI')
-        df = stock.quote.history(start=start_date.strftime('%Y-%m-%d'), 
-                                end=end_date.strftime('%Y-%m-%d'), 
-                                interval='1D')
-        return df, None
-    except Exception as e:
-        return None, str(e)
-
 # Kiểm tra và tải dữ liệu
 if 'load_data' not in st.session_state:
     st.session_state.load_data = True
@@ -67,21 +65,20 @@ if st.session_state.load_data:
     # Hiển thị thông tin cơ bản
     col1, col2, col3, col4 = st.columns(4)
     
+    # Get basic statistics
+    stats = get_basic_stats(df)
+    
     with col1:
-        st.metric("Tổng số ngày", len(df))
+        st.metric("Tổng số ngày", stats['total_days'])
     
     with col2:
-        latest_price = df['close'].iloc[-1]
-        st.metric("Giá đóng cửa mới nhất", f"{latest_price:,.0f} VND")
+        st.metric("Giá đóng cửa mới nhất", f"{stats['latest_price']:,.0f} VND")
     
     with col3:
-        price_change = df['close'].iloc[-1] - df['close'].iloc[-2] if len(df) > 1 else 0
-        change_percent = (price_change / df['close'].iloc[-2] * 100) if len(df) > 1 else 0
-        st.metric("Thay đổi hôm nay", f"{price_change:,.0f} VND", f"{change_percent:.2f}%")
+        st.metric("Thay đổi hôm nay", f"{stats['price_change']:,.0f} VND", f"{stats['change_percent']:.2f}%")
     
     with col4:
-        avg_volume = df['volume'].mean()
-        st.metric("Khối lượng TB", f"{avg_volume:,.0f}")
+        st.metric("Khối lượng TB", f"{stats['avg_volume']:,.0f}")
     
     st.markdown("---")
     
@@ -92,49 +89,7 @@ if st.session_state.load_data:
     
     # Biểu đồ kết hợp (toàn bộ chiều rộng)
     st.subheader(f"📈 Phân tích tổng hợp {symbol}")
-    fig_combined = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-        subplot_titles=(f'Giá cổ phiếu {symbol}', 'Khối lượng giao dịch'),
-        row_heights=[0.7, 0.3]
-    )
-    
-    # Thêm biểu đồ nến
-    fig_combined.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df['open'],
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            name=symbol
-        ),
-        row=1, col=1
-    )
-    
-    # Thêm biểu đồ volume
-    fig_combined.add_trace(
-        go.Bar(
-            x=df.index,
-            y=df['volume'],
-            name='Volume',
-            marker_color='lightblue'
-        ),
-        row=2, col=1
-    )
-    
-    fig_combined.update_layout(
-        title=f'Phân tích cổ phiếu {symbol}',
-        xaxis_rangeslider_visible=False,
-        height=800,
-        showlegend=False
-    )
-    
-    fig_combined.update_xaxes(title_text="Ngày", row=2, col=1)
-    fig_combined.update_yaxes(title_text="Giá (VND)", row=1, col=1)
-    fig_combined.update_yaxes(title_text="Khối lượng", row=2, col=1)
-    
+    fig_combined = create_combined_chart(df, symbol)
     st.plotly_chart(fig_combined, use_container_width=True)
 
     # Phân tích thống kê
@@ -161,34 +116,6 @@ if st.session_state.load_data:
         # Thêm checkbox để cho phép người dùng chọn có chạy dự đoán hay không
         if st.checkbox("Chạy mô hình dự đoán LSTM", value=False, help="Có thể mất vài phút để huấn luyện mô hình"):
             
-            # Hàm tạo dữ liệu cho LSTM
-            @st.cache_data
-            def prepare_lstm_data(data, lookback=60):
-                scaler = MinMaxScaler()
-                scaled_data = scaler.fit_transform(data[['close']].values)
-                
-                X, y = [], []
-                for i in range(lookback, len(scaled_data)):
-                    X.append(scaled_data[i - lookback:i, 0])
-                    y.append(scaled_data[i, 0])
-                
-                X, y = np.array(X), np.array(y)
-                X = X.reshape((X.shape[0], X.shape[1], 1))
-                
-                return X, y, scaler
-            
-            # Hàm tạo và huấn luyện mô hình LSTM
-            def create_lstm_model(X, y):
-                model = Sequential()
-                model.add(LSTM(64, return_sequences=True, input_shape=(X.shape[1], 1)))
-                model.add(Dropout(0.2))
-                model.add(LSTM(64))
-                model.add(Dropout(0.2))
-                model.add(Dense(1))
-                
-                model.compile(optimizer='adam', loss='mean_squared_error')
-                return model
-            
             with st.spinner("Đang chuẩn bị dữ liệu và huấn luyện mô hình LSTM..."):
                 try:
                     # Chuẩn bị dữ liệu
@@ -211,14 +138,13 @@ if st.session_state.load_data:
                         # Huấn luyện với callback để cập nhật progress
                         for epoch in range(epochs):
                             status_text.text(f'Epoch {epoch + 1}/{epochs}')
-                            model.fit(X, y, epochs=1, batch_size=batch_size)
+                            train_lstm_model(model, X, y, epochs=1, batch_size=batch_size, verbose=0)
                             progress_bar.progress((epoch + 1) / epochs)
                         
                         status_text.text('Hoàn thành huấn luyện!')
                         
                         # Dự đoán
-                        predicted = model.predict(X)
-                        predicted_prices = scaler.inverse_transform(predicted)
+                        predicted_prices = make_predictions(model, X, scaler)
                         real_prices = scaler.inverse_transform(y.reshape(-1, 1))
                         
                         # Debug: Kiểm tra dữ liệu
@@ -234,172 +160,25 @@ if st.session_state.load_data:
                         prediction_dates = df.index[lookback:]
                         
                         # Tạo DataFrame cho dữ liệu dự đoán
-                        prediction_df = pd.DataFrame({
-                            'date': prediction_dates,
-                            'actual': real_prices.flatten(),
-                            'predicted': predicted_prices.flatten()
-                        })
+                        prediction_df = prepare_prediction_dataframe(prediction_dates, real_prices, predicted_prices)
                         
                         # Hiển thị biểu đồ so sánh
                         col1, col2 = st.columns(2)
                         
                         with col1:
                             st.subheader("📊 So sánh Thực tế vs Dự đoán")
-                            fig_comparison = go.Figure()
-                            
-                            fig_comparison.add_trace(go.Scatter(
-                                x=prediction_df['date'],
-                                y=prediction_df['actual'],
-                                mode='lines',
-                                name='Giá thực tế',
-                                line=dict(color='blue')
-                            ))
-                            
-                            fig_comparison.add_trace(go.Scatter(
-                                x=prediction_df['date'],
-                                y=prediction_df['predicted'],
-                                mode='lines',
-                                name='Giá dự đoán',
-                                line=dict(color='red', dash='dash')
-                            ))
-                            
-                            fig_comparison.update_layout(
-                                title='So sánh Giá thực tế vs Dự đoán',
-                                xaxis_title='Ngày',
-                                yaxis_title='Giá (VND)',
-                                height=400
-                            )
-                            
+                            fig_comparison = create_comparison_chart(prediction_df)
                             st.plotly_chart(fig_comparison, use_container_width=True)
                         
                         with col2:
                             st.subheader("📈 Tín hiệu Mua/Bán")
                             
                             # Tạo tín hiệu mua/bán
-                            signals = []
-                            for i in range(1, len(predicted_prices)):
-                                if predicted_prices[i] > predicted_prices[i - 1]:
-                                    signals.append('Mua')
-                                else:
-                                    signals.append('Bán')
+                            signals = generate_trading_signals(predicted_prices)
                             
                             # Hiển thị tín hiệu cuối cùng và phân tích trading
                             latest_signal = signals[-1] if signals else "Không xác định"
                             signal_color = "green" if latest_signal == "Mua" else "red"
-                            
-                            # Phân tích xu hướng và dự đoán điểm mua/bán
-                            def analyze_trading_signals(predicted_prices, real_prices, dates):
-                                trading_analysis = {}
-                                
-                                # Flatten predicted_prices để đảm bảo là 1D array
-                                pred_flat = predicted_prices.flatten()
-                                
-                                # Tính toán độ biến động giá
-                                price_volatility = np.std(pred_flat) / np.mean(pred_flat) * 100
-                                
-                                # Tìm điểm thấp nhất và cao nhất trong dự đoán
-                                min_price_idx = np.argmin(pred_flat)
-                                max_price_idx = np.argmax(pred_flat)
-                                
-                                # Tính toán đà tăng/giảm
-                                recent_trend = pred_flat[-5:] if len(pred_flat) >= 5 else pred_flat
-                                trend_direction = "Tăng" if recent_trend[-1] > recent_trend[0] else "Giảm"
-                                trend_strength = abs((recent_trend[-1] - recent_trend[0]) / recent_trend[0] * 100)
-                                
-                                # Tạo future dates tính từ ngày hiện tại
-                                today = pd.Timestamp.today()
-                                
-                                # Dự đoán điểm mua tối ưu trong tương lai gần (30 ngày tới)
-                                buy_opportunities = []
-                                for i in range(1, min(len(pred_flat) - 1, 20)):  # Chỉ xem xét 20 điểm gần nhất
-                                    if (pred_flat[i] < pred_flat[i-1] and 
-                                        pred_flat[i] < pred_flat[i+1]):
-                                        profit_potential = (np.max(pred_flat[i:]) - pred_flat[i]) / pred_flat[i] * 100
-                                        if profit_potential > 2:
-                                            # Tính ngày dự kiến trong tương lai - sử dụng datetime.timedelta
-                                            days_ahead = int(i)
-                                            future_date = today + pd.DateOffset(days=days_ahead)
-                                            
-                                            buy_opportunities.append({
-                                                'index': i,
-                                                'price': float(pred_flat[i]),
-                                                'date': future_date,
-                                                'profit_potential': profit_potential
-                                            })
-                                
-                                # Nếu không có cơ hội mua từ dự đoán, tạo dựa trên xu hướng
-                                if not buy_opportunities and len(pred_flat) > 0:
-                                    # Lấy giá thấp nhất gần đây làm điểm mua
-                                    recent_prices = pred_flat[-10:] if len(pred_flat) >= 10 else pred_flat
-                                    min_recent_idx = np.argmin(recent_prices)
-                                    min_price = recent_prices[min_recent_idx]
-                                    days_ahead = int(min_recent_idx + 1)
-                                    future_date = today + pd.DateOffset(days=days_ahead)
-                                    
-                                    buy_opportunities.append({
-                                        'index': min_recent_idx,
-                                        'price': float(min_price),
-                                        'date': future_date,
-                                        'profit_potential': 15.0  # Giả định 15% tiềm năng lãi
-                                    })
-                                
-                                # Sắp xếp theo tiềm năng lãi
-                                buy_opportunities.sort(key=lambda x: x['profit_potential'], reverse=True)
-                                
-                                # Dự đoán điểm bán tối ưu trong tương lai
-                                sell_opportunities = []
-                                for i in range(1, min(len(pred_flat) - 1, 20)):
-                                    if (pred_flat[i] > pred_flat[i-1] and 
-                                        pred_flat[i] > pred_flat[i+1]):
-                                        price_drop = (pred_flat[i] - np.min(pred_flat[i:])) / pred_flat[i] * 100
-                                        if price_drop > 2:
-                                            days_ahead = int(i)
-                                            future_date = today + pd.DateOffset(days=days_ahead)
-                                            
-                                            sell_opportunities.append({
-                                                'index': i,
-                                                'price': float(pred_flat[i]),
-                                                'date': future_date,
-                                                'risk_level': price_drop
-                                            })
-                                
-                                # Nếu không có cơ hội bán từ dự đoán, tạo dựa trên xu hướng
-                                if not sell_opportunities and len(pred_flat) > 0:
-                                    # Lấy giá cao nhất gần đây làm điểm bán
-                                    recent_prices = pred_flat[-10:] if len(pred_flat) >= 10 else pred_flat
-                                    max_recent_idx = np.argmax(recent_prices)
-                                    max_price = recent_prices[max_recent_idx]
-                                    days_ahead = int(max_recent_idx + 1)
-                                    future_date = today + pd.DateOffset(days=days_ahead)
-                                    
-                                    sell_opportunities.append({
-                                        'index': max_recent_idx,
-                                        'price': float(max_price),
-                                        'date': future_date,
-                                        'risk_level': 10.0  # Giả định 10% rủi ro
-                                    })
-                                
-                                sell_opportunities.sort(key=lambda x: x['risk_level'], reverse=True)
-                                
-                                # Tính toán ngày cho min/max price trong tương lai
-                                min_days = int(min_price_idx % 30 + 1)
-                                max_days = int(max_price_idx % 30 + 1)
-                                min_price_future_date = today + pd.DateOffset(days=min_days)
-                                max_price_future_date = today + pd.DateOffset(days=max_days)
-                                
-                                trading_analysis = {
-                                    'volatility': price_volatility,
-                                    'trend_direction': trend_direction,
-                                    'trend_strength': trend_strength,
-                                    'best_buy': buy_opportunities[0] if buy_opportunities else None,
-                                    'best_sell': sell_opportunities[0] if sell_opportunities else None,
-                                    'min_price_date': min_price_future_date,
-                                    'max_price_date': max_price_future_date,
-                                    'min_price': float(pred_flat[min_price_idx]),
-                                    'max_price': float(pred_flat[max_price_idx])
-                                }
-                                
-                                return trading_analysis
                             
                             # Thực hiện phân tích trading
                             trading_info = analyze_trading_signals(
@@ -415,163 +194,31 @@ if st.session_state.load_data:
                                 <p><strong>Độ biến động:</strong> {trading_info['volatility']:.1f}%</p>
                             </div>
                             """, unsafe_allow_html=True)
-                            
+                        
                         # === SECTION: TRADING SIGNALS ANALYSIS ===
                         st.markdown("---")
                         st.subheader("📊 Phân tích Tín hiệu Trading")
                         
                         # Tạo biểu đồ tín hiệu mua/bán trên giá
-                        fig_trading = go.Figure()
-                        
-                        # Thêm giá dự đoán
-                        fig_trading.add_trace(go.Scatter(
-                            x=prediction_df['date'],
-                            y=prediction_df['predicted'],
-                            mode='lines',
-                            name='Giá dự đoán',
-                            line=dict(color='blue', width=2)
-                        ))
-                        
-                        # Thêm điểm mua và bán
-                        buy_dates, buy_prices = [], []
-                        sell_dates, sell_prices = [], []
-                        
-                        # Đảm bảo signals và prediction_dates có cùng độ dài
-                        min_length = min(len(signals), len(prediction_dates) - 1)  # -1 vì signals bắt đầu từ index 1
-                        
-                        for i in range(min_length):
-                            signal_idx = i + 1  # signals bắt đầu từ ngày thứ 2
-                            if signal_idx < len(prediction_dates) and signal_idx < len(predicted_prices):
-                                if signals[i] == 'Mua':
-                                    buy_dates.append(prediction_dates[signal_idx])
-                                    buy_prices.append(predicted_prices[signal_idx][0] if len(predicted_prices[signal_idx].shape) > 0 else predicted_prices[signal_idx])
-                                else:
-                                    sell_dates.append(prediction_dates[signal_idx])
-                                    sell_prices.append(predicted_prices[signal_idx][0] if len(predicted_prices[signal_idx].shape) > 0 else predicted_prices[signal_idx])
-                        
-                        # Thêm scatter points cho tín hiệu mua
-                        if buy_dates:
-                            fig_trading.add_trace(go.Scatter(
-                                x=buy_dates,
-                                y=buy_prices,
-                                mode='markers',
-                                name='Tín hiệu MUA',
-                                marker=dict(color='green', size=10, symbol='triangle-up'),
-                                showlegend=True
-                            ))
-                        
-                        # Thêm scatter points cho tín hiệu bán
-                        if sell_dates:
-                            fig_trading.add_trace(go.Scatter(
-                                x=sell_dates,
-                                y=sell_prices,
-                                mode='markers',
-                                name='Tín hiệu BÁN',
-                                marker=dict(color='red', size=10, symbol='triangle-down'),
-                                showlegend=True
-                            ))
-                        
-                        # Highlight điểm mua/bán tối ưu nếu có
-                        if trading_info['best_buy'] and trading_info['best_buy']['date'] is not None:
-                            try:
-                                buy_date = trading_info['best_buy']['date']
-                                buy_price = float(trading_info['best_buy']['price'])
-                                
-                                # Chỉ hiển thị nếu ngày trong phạm vi hợp lý
-                                today = pd.Timestamp.today()
-                                one_year_ago = today - pd.DateOffset(days=365)
-                                if buy_date >= one_year_ago:
-                                    fig_trading.add_trace(go.Scatter(
-                                        x=[buy_date],
-                                        y=[buy_price],
-                                        mode='markers',
-                                        name='Điểm MUA tối ưu',
-                                        marker=dict(color='darkgreen', size=15, symbol='star'),
-                                        showlegend=True
-                                    ))
-                            except Exception as e:
-                                st.write(f"Debug: Không thể hiển thị điểm mua tối ưu - {str(e)}")
-                        
-                        if trading_info['best_sell'] and trading_info['best_sell']['date'] is not None:
-                            try:
-                                sell_date = trading_info['best_sell']['date']
-                                sell_price = float(trading_info['best_sell']['price'])
-                                
-                                # Chỉ hiển thị nếu ngày trong phạm vi hợp lý
-                                today = pd.Timestamp.today()
-                                one_year_ago = today - pd.DateOffset(days=365)
-                                if sell_date >= one_year_ago:
-                                    fig_trading.add_trace(go.Scatter(
-                                        x=[sell_date],
-                                        y=[sell_price],
-                                        mode='markers',
-                                        name='Điểm BÁN tối ưu',
-                                        marker=dict(color='darkred', size=15, symbol='star'),
-                                        showlegend=True
-                                    ))
-                            except Exception as e:
-                                st.write(f"Debug: Không thể hiển thị điểm bán tối ưu - {str(e)}")
-                        
-                        fig_trading.update_layout(
-                            title='Tín hiệu Mua/Bán trên Biểu đồ Giá',
-                            xaxis_title='Ngày',
-                            yaxis_title='Giá (VND)',
-                            height=500,
-                            showlegend=True
-                        )
-                        
+                        fig_trading = create_trading_signals_chart(prediction_df, signals, trading_info)
                         st.plotly_chart(fig_trading, use_container_width=True)
                         
                         # Hiển thị distribution của tín hiệu
                         col_pie, col_bar = st.columns(2)
                         
                         with col_pie:
-                            if len(signals) > 0:
-                                signal_counts = pd.Series(signals).value_counts()
-                                fig_signals = px.pie(
-                                    values=signal_counts.values,
-                                    names=signal_counts.index,
-                                    title="Phân bổ tín hiệu Mua/Bán",
-                                    color_discrete_map={'Mua': 'green', 'Bán': 'red'}
-                                )
+                            fig_signals = create_signals_pie_chart(signals)
+                            if fig_signals:
                                 st.plotly_chart(fig_signals, use_container_width=True)
                             else:
                                 st.info("Không có tín hiệu để hiển thị")
                         
                         with col_bar:
                             # Tạo biểu đồ trend strength theo thời gian
-                            trend_data = []
-                            window_size = 10
-                            
-                            # Flatten predicted_prices để đảm bảo là 1D array
-                            pred_flat = predicted_prices.flatten()
-                            
-                            if len(pred_flat) > window_size:
-                                for i in range(window_size, len(pred_flat)):
-                                    window_data = pred_flat[i-window_size:i]
-                                    if len(window_data) > 0 and window_data[0] != 0:
-                                        trend_strength = (window_data[-1] - window_data[0]) / window_data[0] * 100
-                                        trend_data.append(trend_strength)
-                                
-                                if trend_data and len(trend_data) > 0:
-                                    # Đảm bảo số lượng dates khớp với trend_data
-                                    available_dates = len(prediction_dates) - window_size
-                                    if available_dates > 0:
-                                        trend_dates = prediction_dates[window_size:window_size + len(trend_data)]
-                                        
-                                        fig_trend = px.bar(
-                                            x=trend_dates,
-                                            y=trend_data,
-                                            title="Cường độ Xu hướng (%)",
-                                            color=trend_data,
-                                            color_continuous_scale=['red', 'yellow', 'green']
-                                        )
-                                        fig_trend.update_layout(height=400)
-                                        st.plotly_chart(fig_trend, use_container_width=True)
-                                    else:
-                                        st.info("Không đủ dữ liệu để hiển thị biểu đồ xu hướng")
-                                else:
-                                    st.info("Không có dữ liệu xu hướng để hiển thị")
+                            trend_data = calculate_trend_strength_over_time(predicted_prices)
+                            fig_trend = create_trend_strength_chart(trend_data, prediction_dates)
+                            if fig_trend:
+                                st.plotly_chart(fig_trend, use_container_width=True)
                             else:
                                 st.info("Không đủ dữ liệu để phân tích xu hướng")
                         
@@ -660,28 +307,16 @@ if st.session_state.load_data:
                             """)
                         
                         # Tính toán và hiển thị lợi nhuận tiềm năng
-                        if trading_info['best_buy'] and trading_info['best_sell']:
-                            try:
-                                buy_price = float(trading_info['best_buy']['price'])
-                                sell_price = float(trading_info['best_sell']['price'])
-                                
-                                if buy_price > 0:
-                                    potential_profit = ((sell_price - buy_price) / buy_price * 100)
-                                    
-                                    if potential_profit > 0:
-                                        st.success(f"""
-                                        ### 📈 Tiềm năng lợi nhuận: {potential_profit:.1f}%
-                                        **Chiến lược:** Mua ở {buy_price:,.0f} VND, bán ở {sell_price:,.0f} VND
-                                        **Lãi dự kiến:** {sell_price - buy_price:,.0f} VND/cổ phiếu
-                                        """)
-                                    else:
-                                        st.warning("⚠️ Không có cơ hội lợi nhuận rõ ràng trong khoảng thời gian dự đoán")
-                                else:
-                                    st.warning("⚠️ Dữ liệu giá không hợp lệ để tính toán lợi nhuận")
-                            except Exception as e:
-                                st.warning("⚠️ Không thể tính toán lợi nhuận tiềm năng do dữ liệu không đầy đủ")
+                        profit_analysis = calculate_potential_profit(trading_info.get('best_buy'), trading_info.get('best_sell'))
+                        
+                        if profit_analysis['is_profitable']:
+                            st.success(f"""
+                            ### 📈 Tiềm năng lợi nhuận: {profit_analysis['profit_percentage']:.1f}%
+                            **Chiến lược:** Mua ở {trading_info['best_buy']['price']:,.0f} VND, bán ở {trading_info['best_sell']['price']:,.0f} VND
+                            **Lãi dự kiến:** {profit_analysis['profit_per_share']:,.0f} VND/cổ phiếu
+                            """)
                         else:
-                            # Hiển thị thông tin dự đoán chung nếu không có điểm mua/bán cụ thể
+                            # Hiển thị thông tin dự đoán chung
                             try:
                                 min_price = float(trading_info['min_price'])
                                 max_price = float(trading_info['max_price'])
@@ -714,15 +349,13 @@ if st.session_state.load_data:
                             st.markdown("#### 📊 Thống kê Rủi ro")
                             
                             # Tính toán signal_counts an toàn
-                            signal_counts = pd.Series(signals).value_counts() if len(signals) > 0 else pd.Series()
-                            buy_count = signal_counts.get('Mua', 0)
-                            sell_count = signal_counts.get('Bán', 0)
+                            signal_distribution = calculate_signal_distribution(signals)
                             
                             st.warning(f"""
                             - **Độ biến động:** {trading_info['volatility']:.1f}% {'(Cao)' if trading_info['volatility'] > 5 else '(Thấp)'}
                             - **Xu hướng ngắn hạn:** {trading_info['trend_direction']} ({trading_info['trend_strength']:.1f}%)
-                            - **Tín hiệu Mua:** {buy_count} lần
-                            - **Tín hiệu Bán:** {sell_count} lần
+                            - **Tín hiệu Mua:** {signal_distribution['Mua']} lần
+                            - **Tín hiệu Bán:** {signal_distribution['Bán']} lần
                             """)
                         
                         with col_risk2:
@@ -746,87 +379,30 @@ if st.session_state.load_data:
                         st.markdown("---")
                         st.subheader("🎯 Độ chính xác Mô hình")
                         
-                        # Đảm bảo dữ liệu có cùng shape và loại bỏ giá trị NaN
-                        real_flat = real_prices.flatten()
-                        pred_flat = predicted_prices.flatten()
+                        # Tính toán độ chính xác
+                        accuracy_metrics = calculate_model_accuracy(real_prices, predicted_prices)
                         
-                        # Loại bỏ các giá trị NaN hoặc inf
-                        valid_indices = ~(np.isnan(real_flat) | np.isnan(pred_flat) | 
-                                        np.isinf(real_flat) | np.isinf(pred_flat))
-                        real_clean = real_flat[valid_indices]
-                        pred_clean = pred_flat[valid_indices]
+                        col_metric1, col_metric2, col_metric3, col_metric4 = st.columns(4)
                         
-                        if len(real_clean) > 0:
-                            # Tính toán metrics
-                            mse = np.mean((real_clean - pred_clean) ** 2)
-                            rmse = np.sqrt(mse)
-                            mae = np.mean(np.abs(real_clean - pred_clean))
-                            
-                            # Tính percentage accuracy (MAPE - Mean Absolute Percentage Error)
-                            mape = np.mean(np.abs((real_clean - pred_clean) / real_clean)) * 100
-                            accuracy = max(0.0, 100.0 - float(mape))
-                            
-                            col_metric1, col_metric2, col_metric3, col_metric4 = st.columns(4)
-                            
-                            with col_metric1:
-                                st.metric("RMSE", f"{rmse:,.0f} VND")
-                            with col_metric2:
-                                st.metric("MAE", f"{mae:,.0f} VND")
-                            with col_metric3:
-                                st.metric("MAPE", f"{mape:.2f}%")
-                            with col_metric4:
-                                st.metric("Độ chính xác", f"{accuracy:.2f}%")
-                            
-                            # Biểu đồ scatter cho accuracy
-                            fig_accuracy = px.scatter(
-                                x=real_clean, 
-                                y=pred_clean,
-                                title="Tương quan Giá thực tế vs Dự đoán",
-                                labels={'x': 'Giá thực tế (VND)', 'y': 'Giá dự đoán (VND)'}
-                            )
-                            # Thêm đường y=x để show perfect prediction
-                            min_val = min(np.min(real_clean), np.min(pred_clean))
-                            max_val = max(np.max(real_clean), np.max(pred_clean))
-                            fig_accuracy.add_trace(go.Scatter(
-                                x=[min_val, max_val],
-                                y=[min_val, max_val],
-                                mode='lines',
-                                name='Dự đoán hoàn hảo',
-                                line=dict(color='red', dash='dash')
-                            ))
-                            
+                        with col_metric1:
+                            st.metric("RMSE", f"{accuracy_metrics['rmse']:,.0f} VND")
+                        with col_metric2:
+                            st.metric("MAE", f"{accuracy_metrics['mae']:,.0f} VND")
+                        with col_metric3:
+                            st.metric("MAPE", f"{accuracy_metrics['mape']:.2f}%")
+                        with col_metric4:
+                            st.metric("Độ chính xác", f"{accuracy_metrics['accuracy']:.2f}%")
+                        
+                        # Biểu đồ scatter cho accuracy
+                        fig_accuracy = create_accuracy_scatter_plot(real_prices, predicted_prices)
+                        if fig_accuracy:
                             st.plotly_chart(fig_accuracy, use_container_width=True)
                         else:
                             st.error("Không thể tính toán độ chính xác do dữ liệu không hợp lệ")
                         
                         # Hiển thị bảng dự đoán mới nhất
                         st.subheader("📋 Dự đoán 10 ngày gần nhất")
-                        recent_predictions = prediction_df.tail(10).copy()
-                        recent_predictions['difference'] = recent_predictions['predicted'] - recent_predictions['actual']
-                        
-                        # Tính độ chính xác với xử lý trường hợp chia cho 0
-                        def calculate_accuracy(actual, predicted):
-                            if actual == 0:
-                                return 0
-                            return max(0, (1 - abs(predicted - actual) / abs(actual)) * 100)
-                        
-                        recent_predictions['accuracy'] = recent_predictions.apply(
-                            lambda row: calculate_accuracy(row['actual'], row['predicted']), axis=1
-                        )
-                        
-                        # Sao lưu dữ liệu số cho tính toán
-                        actual_backup = recent_predictions['actual'].copy()
-                        predicted_backup = recent_predictions['predicted'].copy()
-                        difference_backup = recent_predictions['difference'].copy()
-                        accuracy_backup = recent_predictions['accuracy'].copy()
-                        
-                        # Format hiển thị
-                        recent_predictions['actual'] = actual_backup.apply(lambda x: f"{x:,.0f}")
-                        recent_predictions['predicted'] = predicted_backup.apply(lambda x: f"{x:,.0f}")
-                        recent_predictions['difference'] = difference_backup.apply(lambda x: f"{x:+,.0f}")
-                        recent_predictions['accuracy'] = accuracy_backup.apply(lambda x: f"{x:.1f}%")
-                        
-                        recent_predictions.columns = ['Ngày', 'Giá thực tế (VND)', 'Giá dự đoán (VND)', 'Chênh lệch (VND)', 'Độ chính xác']
+                        recent_predictions = format_prediction_table(prediction_df)
                         st.dataframe(recent_predictions, use_container_width=True)
                         
                 except Exception as e:
