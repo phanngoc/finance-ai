@@ -30,7 +30,7 @@ st.markdown("---")
 st.sidebar.header("Cấu hình")
 symbol = st.sidebar.text_input("Mã cổ phiếu", value="ACB", help="Nhập mã cổ phiếu (VD: ACB, VCB, VHM)")
 start_date = st.sidebar.date_input("Ngày bắt đầu", value=pd.to_datetime("2024-01-01"))
-end_date = st.sidebar.date_input("Ngày kết thúc", value=pd.to_datetime("2025-03-19"))
+end_date = st.sidebar.date_input("Ngày kết thúc", value=pd.Timestamp.today())
 
 # Nút để tải dữ liệu
 if st.sidebar.button("Tải dữ liệu", type="primary"):
@@ -90,56 +90,6 @@ if st.session_state.load_data:
         st.dataframe(df.head(10), use_container_width=True)
         st.write(f"**Kích thước dữ liệu:** {df.shape[0]} hàng, {df.shape[1]} cột")
     
-    # Tạo layout 2 cột cho biểu đồ
-    col1, col2 = st.columns(2)
-    
-    # Biểu đồ nến (Candlestick)
-    with col1:
-        st.subheader(f"🕯️ Biểu đồ nến {symbol}")
-        fig_candle = go.Figure()
-        
-        fig_candle.add_trace(go.Candlestick(
-            x=df.index,
-            open=df['open'],
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            name=symbol
-        ))
-        
-        fig_candle.update_layout(
-            title=f'Biểu đồ nến cổ phiếu {symbol}',
-            xaxis_title='Ngày',
-            yaxis_title='Giá (VND)',
-            xaxis_rangeslider_visible=False,
-            height=500,
-            showlegend=False
-        )
-        
-        st.plotly_chart(fig_candle, use_container_width=True)
-    
-    # Biểu đồ volume
-    with col2:
-        st.subheader(f"📊 Khối lượng giao dịch {symbol}")
-        fig_volume = go.Figure()
-        
-        fig_volume.add_trace(go.Bar(
-            x=df.index,
-            y=df['volume'],
-            name='Volume',
-            marker_color='lightblue'
-        ))
-        
-        fig_volume.update_layout(
-            title=f'Khối lượng giao dịch {symbol}',
-            xaxis_title='Ngày',
-            yaxis_title='Khối lượng',
-            height=500,
-            showlegend=False
-        )
-        
-        st.plotly_chart(fig_volume, use_container_width=True)
-    
     # Biểu đồ kết hợp (toàn bộ chiều rộng)
     st.subheader(f"📈 Phân tích tổng hợp {symbol}")
     fig_combined = make_subplots(
@@ -186,20 +136,7 @@ if st.session_state.load_data:
     fig_combined.update_yaxes(title_text="Khối lượng", row=2, col=1)
     
     st.plotly_chart(fig_combined, use_container_width=True)
-    
-    # Biểu đồ đường cho xu hướng giá
-    st.subheader(f"📉 Xu hướng giá đóng cửa {symbol}")
-    fig_line = px.line(
-        df.reset_index(), 
-        x='time', 
-        y='close',
-        title=f'Xu hướng giá đóng cửa {symbol}',
-        labels={'close': 'Giá đóng cửa (VND)', 'time': 'Ngày'}
-    )
-    
-    fig_line.update_layout(height=400)
-    st.plotly_chart(fig_line, use_container_width=True)
-    
+
     # Phân tích thống kê
     st.markdown("---")
     st.subheader("📋 Thống kê mô tả")
@@ -284,6 +221,15 @@ if st.session_state.load_data:
                         predicted_prices = scaler.inverse_transform(predicted)
                         real_prices = scaler.inverse_transform(y.reshape(-1, 1))
                         
+                        # Debug: Kiểm tra dữ liệu
+                        st.write(f"**Debug info:**")
+                        st.write(f"- Shape predicted_prices: {predicted_prices.shape}")
+                        st.write(f"- Shape real_prices: {real_prices.shape}")
+                        st.write(f"- Min predicted: {np.min(predicted_prices):,.2f}")
+                        st.write(f"- Max predicted: {np.max(predicted_prices):,.2f}")
+                        st.write(f"- Min real: {np.min(real_prices):,.2f}")
+                        st.write(f"- Max real: {np.max(real_prices):,.2f}")
+                        
                         # Tạo index cho dữ liệu dự đoán (bỏ qua lookback ngày đầu)
                         prediction_dates = df.index[lookback:]
                         
@@ -348,13 +294,33 @@ if st.session_state.load_data:
                             """, unsafe_allow_html=True)
                             
                             # Hiển thị thống kê độ chính xác
-                            mse = np.mean((real_prices - predicted_prices) ** 2)
-                            rmse = np.sqrt(mse)
-                            mae = np.mean(np.abs(real_prices - predicted_prices))
+                            # Đảm bảo dữ liệu có cùng shape và loại bỏ giá trị NaN
+                            real_flat = real_prices.flatten()
+                            pred_flat = predicted_prices.flatten()
                             
-                            st.write("**Thống kê độ chính xác:**")
-                            st.write(f"- RMSE: {rmse:,.0f} VND")
-                            st.write(f"- MAE: {mae:,.0f} VND")
+                            # Loại bỏ các giá trị NaN hoặc inf
+                            valid_indices = ~(np.isnan(real_flat) | np.isnan(pred_flat) | 
+                                            np.isinf(real_flat) | np.isinf(pred_flat))
+                            real_clean = real_flat[valid_indices]
+                            pred_clean = pred_flat[valid_indices]
+                            
+                            if len(real_clean) > 0:
+                                # Tính toán metrics
+                                mse = np.mean((real_clean - pred_clean) ** 2)
+                                rmse = np.sqrt(mse)
+                                mae = np.mean(np.abs(real_clean - pred_clean))
+                                
+                                # Tính percentage accuracy (MAPE - Mean Absolute Percentage Error)
+                                mape = np.mean(np.abs((real_clean - pred_clean) / real_clean)) * 100
+                                
+                                st.write("**Thống kê độ chính xác:**")
+                                st.write(f"- RMSE: {rmse:,.2f} VND")
+                                st.write(f"- MAE: {mae:,.2f} VND")
+                                st.write(f"- MAPE: {mape:.2f}%")
+                                st.write(f"- Độ chính xác: {100 - mape:.2f}%")
+                            else:
+                                st.write("**Thống kê độ chính xác:**")
+                                st.write("- Không thể tính toán do dữ liệu không hợp lệ")
                             
                             # Hiển thị distribution của tín hiệu
                             signal_counts = pd.Series(signals).value_counts()
@@ -369,13 +335,28 @@ if st.session_state.load_data:
                         st.subheader("📋 Dự đoán 10 ngày gần nhất")
                         recent_predictions = prediction_df.tail(10).copy()
                         recent_predictions['difference'] = recent_predictions['predicted'] - recent_predictions['actual']
-                        recent_predictions['accuracy'] = (1 - np.abs(recent_predictions['difference']) / recent_predictions['actual']) * 100
+                        
+                        # Tính độ chính xác với xử lý trường hợp chia cho 0
+                        def calculate_accuracy(actual, predicted):
+                            if actual == 0:
+                                return 0
+                            return max(0, (1 - abs(predicted - actual) / abs(actual)) * 100)
+                        
+                        recent_predictions['accuracy'] = recent_predictions.apply(
+                            lambda row: calculate_accuracy(row['actual'], row['predicted']), axis=1
+                        )
+                        
+                        # Sao lưu dữ liệu số cho tính toán
+                        actual_backup = recent_predictions['actual'].copy()
+                        predicted_backup = recent_predictions['predicted'].copy()
+                        difference_backup = recent_predictions['difference'].copy()
+                        accuracy_backup = recent_predictions['accuracy'].copy()
                         
                         # Format hiển thị
-                        recent_predictions['actual'] = recent_predictions['actual'].apply(lambda x: f"{x:,.0f}")
-                        recent_predictions['predicted'] = recent_predictions['predicted'].apply(lambda x: f"{x:,.0f}")
-                        recent_predictions['difference'] = recent_predictions['difference'].apply(lambda x: f"{x:,.0f}")
-                        recent_predictions['accuracy'] = recent_predictions['accuracy'].apply(lambda x: f"{x:.1f}%")
+                        recent_predictions['actual'] = actual_backup.apply(lambda x: f"{x:,.0f}")
+                        recent_predictions['predicted'] = predicted_backup.apply(lambda x: f"{x:,.0f}")
+                        recent_predictions['difference'] = difference_backup.apply(lambda x: f"{x:+,.0f}")
+                        recent_predictions['accuracy'] = accuracy_backup.apply(lambda x: f"{x:.1f}%")
                         
                         recent_predictions.columns = ['Ngày', 'Giá thực tế (VND)', 'Giá dự đoán (VND)', 'Chênh lệch (VND)', 'Độ chính xác']
                         st.dataframe(recent_predictions, use_container_width=True)
