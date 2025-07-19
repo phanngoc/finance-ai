@@ -153,19 +153,50 @@ def calculate_model_accuracy(real_prices, predicted_prices):
             'accuracy': 0.0
         }
     
-    # Calculate metrics
+    # Calculate metrics step by step with detailed debugging
     differences = real_clean - pred_clean
-    squared_differences = differences ** 2
     absolute_differences = np.abs(differences)
+    squared_differences = differences ** 2
     
-    mse = np.mean(squared_differences)
-    rmse = np.sqrt(mse)
-    mae = np.mean(absolute_differences)
+    print(f"Sample differences: {differences[:10]}")
+    print(f"Sample absolute differences: {absolute_differences[:10]}")
+    print(f"Sample squared differences: {squared_differences[:10]}")
+    print(f"Min/Max differences: {differences.min():.4f} / {differences.max():.4f}")
+    print(f"Min/Max absolute differences: {absolute_differences.min():.4f} / {absolute_differences.max():.4f}")
     
-    print(f"MSE calculation: {mse}")
-    print(f"RMSE calculation: {rmse}")
-    print(f"MAE calculation: {mae}")
-    print(f"Sample differences: {differences[:5]}")
+    # Check if all differences are zero
+    if np.allclose(differences, 0, atol=1e-8):
+        print("WARNING: All differences are essentially zero!")
+        print("This suggests predicted and real values are identical")
+    
+    mse = float(np.mean(squared_differences))
+    mae = float(np.mean(absolute_differences))
+    rmse = float(np.sqrt(mse)) if mse > 0 else 0.0
+    
+    print(f"Final MSE: {mse}")
+    print(f"Final MAE: {mae}")
+    print(f"Final RMSE: {rmse}")
+    
+    # Additional check - manually verify calculation
+    manual_mae = 0.0
+    manual_mse = 0.0
+    for i in range(min(len(real_clean), len(pred_clean))):
+        diff = abs(real_clean[i] - pred_clean[i])
+        manual_mae += diff
+        manual_mse += diff ** 2
+    
+    if len(real_clean) > 0:
+        manual_mae /= len(real_clean)
+        manual_mse /= len(real_clean)
+        
+    print(f"Manual verification - MAE: {manual_mae}, MSE: {manual_mse}")
+    
+    # Use manual calculation if numpy result is suspicious
+    if mae == 0 and manual_mae > 0:
+        mae = manual_mae
+        mse = manual_mse
+        rmse = np.sqrt(mse)
+        print(f"Using manual calculation - MAE: {mae}, RMSE: {rmse}")
     
     # Calculate MAPE (Mean Absolute Percentage Error) - avoid division by zero
     percentage_errors = []

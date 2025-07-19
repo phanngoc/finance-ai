@@ -148,16 +148,25 @@ if st.session_state.load_data:
                         
                         # Dự đoán
                         predicted_prices = make_predictions(model, X, scaler)
-                        real_prices = scaler.inverse_transform(y.reshape(-1, 1))
+                        
+                        # Sử dụng dữ liệu thực tế từ DataFrame thay vì từ y (scaled)
+                        # y tương ứng với dữ liệu từ ngày lookback trở đi
+                        real_prices_original = df['close'].iloc[lookback:].values.reshape(-1, 1)
+                        
+                        # Đảm bảo kích thước khớp nhau
+                        min_length = min(len(predicted_prices), len(real_prices_original))
+                        predicted_prices = predicted_prices[:min_length]
+                        real_prices = real_prices_original[:min_length]
                         
                         # Debug prints to check data
                         print(f"Predicted prices shape: {predicted_prices.shape}")
                         print(f"Real prices shape: {real_prices.shape}")
                         print(f"Sample predicted: {predicted_prices[:5].flatten()}")
                         print(f"Sample real: {real_prices[:5].flatten()}")
+                        print(f"Data length check - X: {len(X)}, predicted: {len(predicted_prices)}, real: {len(real_prices)}")
                         
                         # Tạo index cho dữ liệu dự đoán (bỏ qua lookback ngày đầu)
-                        prediction_dates = df.index[lookback:]
+                        prediction_dates = df.index[lookback:lookback+min_length]
                         
                         # Tạo DataFrame cho dữ liệu dự đoán
                         prediction_df = prepare_prediction_dataframe(prediction_dates, real_prices, predicted_prices)
@@ -298,16 +307,17 @@ if st.session_state.load_data:
                         
                         with col_metric1:
                             rmse_val = accuracy_metrics['rmse']
+                            print(f"RMSE value: ", rmse_val)
                             if rmse_val == float('inf') or np.isnan(rmse_val):
                                 st.metric("RMSE", "N/A")
                             else:
-                                st.metric("RMSE", f"{rmse_val:,.0f} VND")
+                                st.metric("RMSE", f"{rmse_val:,.2f} VND")
                         with col_metric2:
                             mae_val = accuracy_metrics['mae']
                             if mae_val == float('inf') or np.isnan(mae_val):
                                 st.metric("MAE", "N/A")
                             else:
-                                st.metric("MAE", f"{mae_val:,.0f} VND")
+                                st.metric("MAE", f"{mae_val:,.2f} VND")
                         with col_metric3:
                             mape_val = accuracy_metrics['mape']
                             if mape_val == float('inf') or np.isnan(mape_val):
