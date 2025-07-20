@@ -106,35 +106,11 @@ if st.session_state.load_data:
         st.metric("Khối lượng TB", f"{stats['avg_volume']:,.0f}")
     
     st.markdown("---")
-    
-    # Hiển thị dữ liệu mẫu
-    with st.expander("📊 Xem dữ liệu chi tiết"):
-        st.dataframe(df.head(10), use_container_width=True)
-        st.write(f"**Kích thước dữ liệu:** {df.shape[0]} hàng, {df.shape[1]} cột")
-    
+
     # Biểu đồ kết hợp (toàn bộ chiều rộng)
     st.subheader(f"📈 Phân tích tổng hợp {symbol}")
     fig_combined = create_combined_chart(df, symbol)
     st.plotly_chart(fig_combined, use_container_width=True)
-
-    # Phân tích thống kê
-    st.markdown("---")
-    st.subheader("📋 Thống kê mô tả")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Thống kê giá:**")
-        price_stats = df[['open', 'high', 'low', 'close']].describe()
-        st.dataframe(price_stats, use_container_width=True)
-    
-    with col2:
-        st.write("**Thống kê khối lượng:**")
-        volume_stats = df[['volume']].describe()
-        st.dataframe(volume_stats, use_container_width=True)
-    
-    # News Section
-    st.markdown("---")
     st.subheader(f"📰 Tin tức về {symbol}")
     
     # Load news data for the selected symbol
@@ -204,79 +180,35 @@ if st.session_state.load_data:
         with col_news1:
             st.metric("Tổng số tin tức", len(news_df))
         
-        with col_news2:
-            if 'category' in news_df.columns:
-                most_common_category = news_df['category'].mode()[0] if not news_df['category'].mode().empty else "N/A"
-                st.metric("Danh mục phổ biến", most_common_category)
-            else:
-                st.metric("Danh mục phổ biến", "N/A")
-        
-        with col_news3:
-            if 'confidence_score' in news_df.columns:
-                avg_confidence = news_df['confidence_score'].mean()
-                st.metric("Độ tin cậy TB", f"{avg_confidence:.1f}/5")
-            else:
-                st.metric("Độ tin cậy TB", "N/A")
-        
-        # Filter and display options
-        col_filter1, col_filter2 = st.columns(2)
-        
-        with col_filter1:
-            # Category filter
-            if 'category' in news_df.columns:
-                categories = ['Tất cả'] + sorted(news_df['category'].unique().tolist())
-                selected_category = st.selectbox("Lọc theo danh mục:", categories)
-            else:
-                selected_category = 'Tất cả'
-        
-        with col_filter2:
-            # Number of articles to display
-            max_articles = st.slider("Số tin tức hiển thị:", min_value=5, max_value=50, value=10, step=5)
-        
         # Filter data
         filtered_news = news_df.copy()
-        if selected_category != 'Tất cả' and 'category' in news_df.columns:
-            filtered_news = filtered_news[filtered_news['category'] == selected_category]
+        formatted_news = format_news_for_display(filtered_news, 15)
         
-        # Format and display news
-        if not filtered_news.empty:
-            formatted_news = format_news_for_display(filtered_news, max_articles)
-            
-            if not formatted_news.empty:
-                # Display news in expandable sections
-                st.markdown("### 📋 Danh sách tin tức")
-                
-                for i, (idx, row) in enumerate(formatted_news.iterrows()):
-                    with st.expander(f"📄 {row['Tiêu đề'][:80]}..." if len(row['Tiêu đề']) > 80 else f"📄 {row['Tiêu đề']}"):
-                        col_info1, col_info2 = st.columns(2)
-                        
-                        with col_info1:
-                            st.write(f"**Ngày đăng:** {row['Ngày đăng']}")
-                            st.write(f"**Danh mục:** {row['Danh mục']}")
-                        
-                        with col_info2:
-                            st.write(f"**Chuyên mục:** {row['Chuyên mục']}")
-                            st.write(f"**Độ tin cậy:** {row['Độ tin cậy']}")
-                        
-                        # Get description if available from the original filtered news
-                        if i < len(filtered_news) and 'description' in filtered_news.columns:
-                            original_row = filtered_news.iloc[i]
-                            if pd.notna(original_row['description']):
-                                st.write(f"**Mô tả:** {original_row['description']}")
-                        
-                        # Link to full article
-                        if row['Link'] and row['Link'] != '#':
-                            st.markdown(f"🔗 [Đọc bài viết đầy đủ]({row['Link']})")
-                
-                # Display summary table
-                with st.expander("📊 Xem bảng tóm tắt tin tức"):
-                    # Create summary table without the link column for better display
-                    summary_table = formatted_news.drop('Link', axis=1) if 'Link' in formatted_news.columns else formatted_news
-                    st.dataframe(summary_table, use_container_width=True)
-            else:
-                st.info("Không có tin tức nào để hiển thị sau khi lọc.")
+        if not formatted_news.empty:
+            for i, (idx, row) in enumerate(formatted_news.iterrows()):
+                with st.expander(f"📄 {row['Tiêu đề'][:80]}..." if len(row['Tiêu đề']) > 80 else f"📄 {row['Tiêu đề']}"):
+                    col_info1, col_info2 = st.columns(2)
+                    
+                    with col_info1:
+                        st.write(f"**Ngày đăng:** {row['Ngày đăng']}")
+                        st.write(f"**Danh mục:** {row['Danh mục']}")
+                    
+                    with col_info2:
+                        st.write(f"**Chuyên mục:** {row['Chuyên mục']}")
+                        st.write(f"**Độ tin cậy:** {row['Độ tin cậy']}")
+                    
+                    # Get description if available from the original filtered news
+                    if i < len(filtered_news) and 'description' in filtered_news.columns:
+                        original_row = filtered_news.iloc[i]
+                        if pd.notna(original_row['description']):
+                            st.write(f"**Mô tả:** {original_row['description']}")
+                    
+                    # Link to full article
+                    if row['Link'] and row['Link'] != '#':
+                        st.markdown(f"🔗 [Đọc bài viết đầy đủ]({row['Link']})")
+
         else:
-            st.info(f"Không có tin tức nào trong danh mục '{selected_category}'.")
+            st.info("Không có tin tức nào để hiển thị sau khi lọc.")
     else:
         st.info(f"Không tìm thấy tin tức cho mã chứng khoán {symbol}.")
         st.markdown("""
@@ -289,8 +221,28 @@ if st.session_state.load_data:
     st.subheader("🤖 Dự đoán giá sử dụng LSTM")
     
     if KERAS_AVAILABLE:
-        # Thêm checkbox để cho phép người dùng chọn có chạy dự đoán hay không
-        if st.checkbox("Chạy mô hình dự đoán LSTM", value=False, help="Có thể mất vài phút để huấn luyện mô hình"):
+        # Initialize session state for LSTM prediction
+        if 'run_lstm_prediction' not in st.session_state:
+            st.session_state.run_lstm_prediction = False
+        
+        # Button to trigger LSTM prediction
+        col_lstm1, col_lstm2 = st.columns([2, 1])
+        
+        with col_lstm1:
+            if st.button("🚀 Chạy mô hình dự đoán LSTM", 
+                        type="primary", 
+                        help="Có thể mất vài phút để huấn luyện mô hình",
+                        key="lstm_prediction_button"):
+                st.session_state.run_lstm_prediction = True
+        
+        with col_lstm2:
+            if st.session_state.run_lstm_prediction:
+                if st.button("🔄 Reset", help="Xóa kết quả dự đoán", key="reset_lstm_button"):
+                    st.session_state.run_lstm_prediction = False
+                    st.rerun()
+        
+        # Run LSTM prediction if button was clicked
+        if st.session_state.run_lstm_prediction:
             
             with st.spinner("Đang chuẩn bị dữ liệu và huấn luyện mô hình LSTM..."):
                 try:
