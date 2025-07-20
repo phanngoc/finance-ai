@@ -4,6 +4,8 @@ Data loading and processing utilities
 import pandas as pd
 import streamlit as st
 from vnstock import Vnstock
+import os
+from datetime import datetime
 
 
 @st.cache_data
@@ -133,3 +135,77 @@ def format_prediction_table(prediction_df, num_rows=10):
     recent_predictions.columns = ['Ngày', 'Giá thực tế (VND)', 'Giá dự đoán (VND)', 'Chênh lệch (VND)', 'Độ chính xác']
     
     return recent_predictions
+
+
+@st.cache_data
+def load_news_data(symbol):
+    """
+    Load news data for a specific stock symbol
+    
+    Args:
+        symbol (str): Stock symbol (e.g., 'ACB', 'VCB')
+        
+    Returns:
+        DataFrame: News data for the symbol, empty DataFrame if file not found
+    """
+    try:
+        # Construct the file path
+        base_path = os.path.dirname(os.path.dirname(__file__))  # Go up two levels from utils
+        csv_file_path = os.path.join(base_path, 'data', 'classified_articles', f'{symbol}_articles.csv')
+        
+        # Check if file exists
+        if not os.path.exists(csv_file_path):
+            return pd.DataFrame()
+        
+        # Read the CSV file
+        df = pd.read_csv(csv_file_path)
+        
+        # Convert pub_date to datetime if it exists
+        if 'pub_date' in df.columns:
+            df['pub_date'] = pd.to_datetime(df['pub_date'], errors='coerce')
+            # Sort by publication date (newest first)
+            df = df.sort_values('pub_date', ascending=False)
+        
+        return df
+        
+    except Exception as e:
+        st.error(f"Lỗi khi đọc dữ liệu tin tức: {str(e)}")
+        return pd.DataFrame()
+
+
+def format_news_for_display(news_df, max_articles=10):
+    """
+    Format news data for display in Streamlit
+    
+    Args:
+        news_df (DataFrame): News data
+        max_articles (int): Maximum number of articles to display
+        
+    Returns:
+        DataFrame: Formatted news data
+    """
+    if news_df.empty:
+        return pd.DataFrame()
+    
+    # Select and limit articles
+    display_df = news_df.head(max_articles).copy()
+    
+    # Format publication date
+    if 'pub_date' in display_df.columns:
+        display_df['formatted_date'] = display_df['pub_date'].dt.strftime('%d/%m/%Y %H:%M')
+    else:
+        display_df['formatted_date'] = 'N/A'
+    
+    # Create display columns
+    formatted_data = []
+    for _, row in display_df.iterrows():
+        formatted_data.append({
+            'Tiêu đề': row.get('title', 'N/A'),
+            'Ngày đăng': row.get('formatted_date', 'N/A'),
+            'Danh mục': row.get('category', 'N/A'),
+            'Chuyên mục': row.get('section', 'N/A'),
+            'Độ tin cậy': f"{row.get('confidence_score', 0)}/5" if 'confidence_score' in row else 'N/A',
+            'Link': row.get('link', '#')
+        })
+    
+    return pd.DataFrame(formatted_data)
