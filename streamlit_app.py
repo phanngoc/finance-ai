@@ -9,6 +9,9 @@ from utils.data_processing import (
     load_stock_data, get_basic_stats, prepare_prediction_dataframe, 
     format_prediction_table, load_news_data, format_news_for_display
 )
+from utils.openai_summary import (
+    get_openai_news_summary, format_articles_for_summary
+)
 from utils.lstm_model import (
     prepare_lstm_data, create_lstm_model, train_lstm_model, 
     make_predictions, calculate_model_accuracy, predict_future_prices, KERAS_AVAILABLE
@@ -47,6 +50,22 @@ st.sidebar.header("Cấu hình")
 symbol = st.sidebar.text_input("Mã cổ phiếu", value="ACB", help="Nhập mã cổ phiếu (VD: ACB, VCB, VHM)")
 start_date = st.sidebar.date_input("Ngày bắt đầu", value=pd.to_datetime("2024-01-01"))
 end_date = st.sidebar.date_input("Ngày kết thúc", value=pd.Timestamp.today())
+
+# OpenAI API Configuration
+st.sidebar.subheader("🤖 Cấu hình OpenAI")
+openai_api_key = st.sidebar.text_input(
+    "OpenAI API Key", 
+    type="password", 
+    help="Nhập API key để sử dụng tính năng tóm tắt tin tức bằng AI",
+    placeholder="sk-..."
+)
+
+# News summary configuration
+enable_ai_summary = st.sidebar.checkbox(
+    "Tạo tóm tắt tin tức bằng AI", 
+    value=False,
+    help="Sử dụng OpenAI để phân tích và tóm tắt tin tức (cần API key)"
+)
 
 # Nút để tải dữ liệu
 if st.sidebar.button("Tải dữ liệu", type="primary"):
@@ -123,6 +142,62 @@ if st.session_state.load_data:
         news_df = load_news_data(symbol)
     
     if not news_df.empty:
+        # AI Summary Section (before showing individual news)
+        if enable_ai_summary and openai_api_key:
+            st.markdown("---")
+            st.subheader("🤖 Phân tích AI - Tóm tắt 10 tin tức mới nhất")
+            
+            if st.button("🔄 Tạo phân tích AI", type="primary", help="Sử dụng OpenAI để phân tích tác động tin tức lên giá cổ phiếu"):
+                with st.spinner("🤖 Đang phân tích tin tức bằng AI..."):
+                    try:
+                        # Get 10 latest articles for AI analysis
+                        articles_for_ai = format_articles_for_summary(news_df, max_articles=10)
+                        
+                        if articles_for_ai:
+                            # Get AI summary
+                            ai_summary = get_openai_news_summary(articles_for_ai, symbol, openai_api_key)
+                            
+                            if ai_summary:
+                                # Display AI analysis in an attractive format
+                                st.markdown("### 📊 Báo cáo Phân tích AI")
+                                
+                                # Create a styled container for AI analysis
+                                with st.container():
+                                    st.markdown(
+                                        """
+                                        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #1f77b4;">
+                                        """, 
+                                        unsafe_allow_html=True
+                                    )
+                                    
+                                    # Display the AI analysis
+                                    st.markdown(ai_summary)
+                                    
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                                
+                                # Add disclaimer
+                                st.warning("""
+                                ⚠️ **Lưu ý quan trọng:** 
+                                - Đây là phân tích được tạo bởi AI dựa trên dữ liệu tin tức có sẵn
+                                - Không được coi là lời khuyên đầu tư tài chính
+                                - Luôn thực hiện nghiên cứu độc lập trước khi đưa ra quyết định đầu tư
+                                - Kết quả có thể thay đổi tùy theo diễn biến thị trường
+                                """)
+                                
+                            else:
+                                st.error("Không thể tạo phân tích AI. Vui lòng kiểm tra API key hoặc thử lại.")
+                        else:
+                            st.warning("Không có đủ tin tức để phân tích.")
+                            
+                    except Exception as e:
+                        st.error(f"Lỗi khi tạo phân tích AI: {str(e)}")
+            
+            st.markdown("---")
+        
+        elif enable_ai_summary and not openai_api_key:
+            st.warning("🔑 Vui lòng nhập OpenAI API Key trong sidebar để sử dụng tính năng phân tích AI.")
+            st.markdown("---")
+        
         # Display news statistics
         col_news1, col_news2, col_news3 = st.columns(3)
         

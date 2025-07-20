@@ -21,6 +21,9 @@ torch
 yfinance
 vnstock
 
+# OpenAI integration
+openai>=1.0.0
+
 # Visualization
 plotly
 streamlit
