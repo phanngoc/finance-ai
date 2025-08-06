@@ -149,3 +149,120 @@ MIT License - Xem file LICENSE để biết thêm chi tiết.
 3. Commit changes
 4. Push to branch
 5. Tạo Pull Request
+
+# Finance AI Project
+
+## 🚀 Tính năng mới: Phân tích Chart với OpenAI
+
+### 📊 Tính năng phân tích chart tự động
+
+Dự án đã được nâng cấp với tính năng phân tích chart tài chính tự động sử dụng OpenAI GPT-4 Vision:
+
+#### 🔧 Cài đặt
+
+1. **Cài đặt dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Thiết lập environment variables:**
+   
+   **Cách 1: Sử dụng file .env (Khuyến nghị)**
+   ```bash
+   # Copy file example
+   cp env.example .env
+   
+   # Chỉnh sửa file .env với API key của bạn
+   nano .env
+   ```
+   
+   **Cách 2: Export trực tiếp**
+   ```bash
+   export OPENAI_API_KEY="your-api-key-here"
+   ```
+   
+   **Cách 3: Trong Streamlit**
+   ```python
+   import os
+   os.environ["OPENAI_API_KEY"] = "your-api-key-here"
+   ```
+
+#### 🎯 Cách sử dụng
+
+1. **Chạy demo:**
+   ```bash
+   python fireant_browserless.py
+   ```
+
+2. **Quy trình tự động:**
+   - Scraping thông tin cơ bản từ Fireant.vn
+   - Click vào tab "Tài chính"
+   - Chụp screenshot chart
+   - Phân tích chart với OpenAI GPT-4 Vision
+   - Xuất kết quả dưới dạng markdown
+
+#### 📁 Cấu trúc dữ liệu
+
+```
+data/
+├── screenshots/          # Screenshot trang chính
+├── analysis/            # Phân tích chart riêng lẻ
+└── complete_analysis/   # Toàn bộ dữ liệu phân tích
+    ├── general_screenshot.png
+    ├── financial_screenshot.png
+    ├── financial_analysis.md
+    └── README.md
+```
+
+#### 🤖 Kết quả phân tích
+
+Phân tích bao gồm:
+- **Tổng quan xu hướng** giá
+- **Chỉ báo kỹ thuật** và ý nghĩa
+- **Phân tích khối lượng** giao dịch
+- **Đánh giá rủi ro** và khuyến nghị
+- **Dự báo ngắn hạn**
+
+#### 💾 Lưu trữ
+
+- **Lưu phân tích riêng:** Chỉ lưu file markdown phân tích
+- **Lưu toàn bộ:** Lưu cả screenshot và phân tích với README
+
+### 🔄 Quy trình hoạt động
+
+1. **Truy cập trang Fireant.vn** với mã chứng khoán
+2. **Xử lý popup** và chụp screenshot trang chính
+3. **Click tab "Tài chính"** và chờ load chart
+4. **Chụp screenshot chart** tài chính
+5. **Gửi screenshot** cho OpenAI GPT-4 Vision phân tích
+6. **Xuất kết quả** dưới dạng markdown có cấu trúc
+
+### ⚠️ Lưu ý quan trọng
+
+- Cần OpenAI API key hợp lệ
+- Phân tích chỉ mang tính chất tham khảo
+- Không phải khuyến nghị đầu tư
+- Luôn tự nghiên cứu và đánh giá rủi ro
+
+### 🔧 Cấu hình Environment Variables
+
+Dự án sử dụng `python-dotenv` để quản lý environment variables:
+
+```bash
+# Cài đặt dependencies
+pip install -r requirements.txt
+
+# Tạo file .env từ template
+cp env.example .env
+
+# Chỉnh sửa file .env
+nano .env
+```
+
+**Các biến môi trường chính:**
+- `OPENAI_API_KEY`: API key cho OpenAI (bắt buộc)
+- `BROWSERLESS_URL`: URL cho Browserless service (tùy chọn)
+- `FIREANT_BASE_URL`: Base URL cho Fireant (tùy chọn)
+- `DATA_DIR`: Thư mục lưu trữ dữ liệu (tùy chọn)
+
+## 📋 Các tính năng khác

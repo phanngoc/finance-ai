@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Browserless service
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: fireant-browserless
+    ports:
+      - "3000:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=300000
+      - MAX_QUEUE_LENGTH=10
+      - ENABLE_DEBUGGER=true
+      - ENABLE_DEBUGGER_VIEWER=true
+      - KEEP_ALIVE=true
+      - CHROME_REFRESH_TIME=3600000
+      - DEFAULT_BLOCK_ADS=true
+      - FUNCTION_ENABLE_INCOGNITO=true
+      - FUNCTION_ENABLE_DEBUGGER=true
+    volumes:
+      - browserless_data:/usr/local/share/.cache/browserless
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Streamlit app service (optional)
+  streamlit-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fireant-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - BROWSERLESS_URL=ws://browserless:3000
+    depends_on:
+      browserless:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    profiles:
+      - app
+
+volumes:
+  browserless_data:
+    driver: local
+
+networks:
+  default:
+    name: fireant-network 
