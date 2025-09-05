@@ -4,10 +4,11 @@
 
 ## 🚀 Tính năng chính
 
-- **Dự đoán LSTM**: Dự đoán giá cổ phiếu sử dụng mạng neural LSTM
+- **Dự đoán LSTM**: Dự đoán giá cổ phiếu sử dụng mạng neural LSTM với 5 features
 - **Dự đoán tương lai**: Dự đoán giá cho 10 ngày kinh doanh tiếp theo
 - **Phân tích xu hướng**: Xác định hướng và cường độ xu hướng giá
-- **Độ chính xác mô hình**: Đánh giá hiệu suất dự đoán
+- **Độ chính xác mô hình**: Đánh giá hiệu suất dự đoán với multiple features
+- **Kiến trúc nâng cao**: 3 LSTM layers + Dropout để tránh overfitting
 - **Giao diện thân thiện**: Streamlit web app dễ sử dụng
 
 ## 📁 Cấu trúc Project
@@ -68,6 +69,22 @@ docker-compose up -d
 # Deploy application
 ./scripts/deploy.sh latest ec2-xx-xx-xx-xx.compute-1.amazonaws.com ubuntu ~/.ssh/id_rsa
 ```
+
+## 🧠 Mô hình LSTM
+
+### Features sử dụng:
+- **📈 Close Price**: Giá đóng cửa (target variable)
+- **📊 Volume**: Khối lượng giao dịch
+- **🔵 Open Price**: Giá mở cửa
+- **🔴 High Price**: Giá cao nhất trong ngày
+- **🟢 Low Price**: Giá thấp nhất trong ngày
+
+### Kiến trúc mô hình:
+- **3 LSTM Layers**: 128 → 64 → 32 units
+- **Dropout**: 20% để tránh overfitting
+- **Dense Layers**: 16 units + 1 output
+- **Optimizer**: Adam với MSE loss
+- **Input Shape**: (lookback_days, 5_features)
 
 ## 📊 Sử dụng
 

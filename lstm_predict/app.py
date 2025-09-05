@@ -78,6 +78,19 @@ enable_future_prediction = st.sidebar.checkbox(
     help="Hiển thị dự đoán giá cho 10 ngày kinh doanh tiếp theo"
 )
 
+# Model Features Info
+st.sidebar.subheader("📊 Features sử dụng")
+st.sidebar.info("""
+**Mô hình LSTM sử dụng:**
+- 📈 Giá đóng cửa (Close)
+- 📊 Khối lượng (Volume) 
+- 🔵 Giá mở cửa (Open)
+- 🔴 Giá cao nhất (High)
+- 🟢 Giá thấp nhất (Low)
+
+*Nhiều features giúp cải thiện độ chính xác dự đoán*
+""")
+
 # Nút để tải dữ liệu
 if st.sidebar.button("🚀 Bắt đầu phân tích", type="primary"):
     st.session_state.load_data = True
@@ -178,6 +191,16 @@ if st.session_state.load_data:
                 
                 # Tạo và huấn luyện mô hình
                 model = create_lstm_model(X, y)
+                
+                # Hiển thị thông tin mô hình
+                st.info(f"""
+                **🏗️ Kiến trúc mô hình LSTM:**
+                - **Input features:** {X.shape[2]} (Close, Volume, Open, High, Low)
+                - **Lookback period:** {X.shape[1]} ngày
+                - **Training samples:** {X.shape[0]} mẫu
+                - **Architecture:** 3 LSTM layers (128→64→32) + Dense layers
+                - **Dropout:** 20% để tránh overfitting
+                """)
                 
                 # Progress bar cho quá trình huấn luyện
                 progress_bar = st.progress(0)
@@ -384,10 +407,11 @@ else:
     4. **Nhấn nút "Bắt đầu phân tích"** để xem kết quả
     
     ## 📊 Các tính năng chính:
-    - **Dự đoán giá LSTM**: Sử dụng mạng neural LSTM để dự đoán giá
+    - **Dự đoán giá LSTM**: Sử dụng mạng neural LSTM với 5 features (Close, Volume, Open, High, Low)
     - **Dự đoán tương lai**: Dự đoán giá cho 10 ngày kinh doanh tiếp theo
-    - **Độ chính xác mô hình**: Đánh giá hiệu suất dự đoán
+    - **Độ chính xác mô hình**: Đánh giá hiệu suất dự đoán với multiple features
     - **Phân tích xu hướng**: Xác định hướng và cường độ xu hướng giá
+    - **Kiến trúc nâng cao**: 3 LSTM layers + Dropout để tránh overfitting
     """)
     
     st.markdown("---")
